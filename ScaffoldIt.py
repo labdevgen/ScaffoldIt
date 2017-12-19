@@ -153,7 +153,6 @@ class MainAssemblerWindow(QWidget):
                 else:
                     reindex += list(range(s+self.scaffolds[ind]-1,s-1,-1))
                 s += self.scaffolds[ind]
-            print (reindex)
             temp = np.array(self.data)
             for i in range(len(self.data)):
                 for j in range(len(self.data)):
@@ -169,10 +168,7 @@ class MainAssemblerWindow(QWidget):
         bed = np.genfromtxt(self.settings["BedFile"],
                             dtype=np.dtype([("f0","|U50"),("f1",np.int64),("f2",np.int64)]),
                             #dtype=None,
-                            usecols=(0,1,2))#,
-                            #converters={0:lambda x: x.decode("utf-8")})
-        print(bed)
-        #print(bed)
+                            usecols=(0,1,2))
         self.scaffolds = []
         self.scaffoldNames = []
         count = 0
@@ -422,15 +418,14 @@ class MainAssemblerWindow(QWidget):
                 return int(o)
 
         new_genome = np.genfromtxt(fname,dtype=np.dtype([("f0","|U50"),("f1","|U50")]))
-        print (new_genome)
-        print (new_genome["f0"])
         assert len(new_genome) == len(self.scaffolds)
+        assert sum(self.scaffolds) == len(self.data)
+        assert len(np.unique(new_genome["f0"]))==len(new_genome["f0"])
         scaffolds_reindex = []
         new_orientations = []
         reindex = []
         for ind,val in enumerate(new_genome["f0"]):
-            #val = val.decode('utf-8')
-            if not val in self.scaffoldNames:
+            if not (val in self.scaffoldNames):
                 print ("Scaffold ",val," not in")
                 print (self.scaffoldNames)
                 raise
@@ -444,13 +439,16 @@ class MainAssemblerWindow(QWidget):
             scaffold_end = self.borders[old_id]
 
             new_orientations.append(orientation_to_int(new_genome["f1"][ind]))
+
             if new_orientations[-1] != self.scaffoldOrientations[ind]:
-                reindex += list(range(scaffold_end,scaffold_begin,-1))
+                reindex += list(range(scaffold_end-1,scaffold_begin-1,-1))
             elif new_orientations[-1] == 1 or new_orientations[-1] == 0:
                 reindex += list(range(scaffold_begin,scaffold_end,1))
             else:
                 print (new_orientations[-1],self.scaffoldOrientations[ind])
                 raise
+
+        assert len(reindex) == len(self.data)
 
         temp = np.zeros_like(self.data)
         for i in range(len(self.data)):
