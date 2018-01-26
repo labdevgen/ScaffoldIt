@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 import os
+import datetime
 
 from PyQt5 import QtCore,QtGui
 from PyQt5.QtWidgets import QApplication,QWidget,QPushButton,QGridLayout,QFileDialog,QCheckBox,QMessageBox
@@ -21,6 +22,11 @@ def getLutfromCmap(cm_name):
     return pgMap.getLookupTable()
 
 class MainAssemblerWindow(QWidget):
+    def getCuttTimePrefix(self):
+        now = datetime.datetime.now()
+        return "_".join(map(str, [now.year, now.month, now.day,
+                                      now.hour, now.second]))
+
     def __init__(self,parent=None):
         super().__init__(parent)
         self.settings = {}
@@ -33,7 +39,11 @@ class MainAssemblerWindow(QWidget):
         self.diapason = None
         self.actions = []
         self.settings = {}
-        self.settings["filename"] = "test.txt"
+        timePrefix = self.getCuttTimePrefix()
+        self.settings["actionsfile"] =  timePrefix + "actionsLog.txt"
+        self.settings["mainLogFile"] = timePrefix + "mainLog.txt"
+        with open(self.settings["mainLogFile"],"a") as fout:
+            fout.write(str(datetime.datetime.now())+" ScaffoldIT started\n")
         self.loadUI()
         self.settings["doNorm"] = self.cbNormToSize.isChecked()
         self.show()
@@ -44,6 +54,8 @@ class MainAssemblerWindow(QWidget):
         self.bnLoadHiCPro.clicked.connect(self.loadHiCPro)
 
         self.cbNormToSize = QCheckBox("Normalize to bin size")
+        self.cbAutoLog = QCheckBox("AutoLog")
+        self.cbAutoLog.setChecked(True)
 
         self.bnLoadTest =  QPushButton("Load Test data")
         self.bnLoadTest.clicked.connect(self.loadTest)
@@ -72,13 +84,14 @@ class MainAssemblerWindow(QWidget):
         self.layout.addWidget(self.bnLoadHiCPro,1,0)
         self.layout.addWidget(self.bnLoadTest, 1, 1)
         self.layout.addWidget(self.cbNormToSize, 1, 2)
-        self.layout.addWidget(self.bnLoadGenome, 1, 3)
-        self.layout.addWidget(self.bnSaveGenome, 1, 4)
-        self.layout.addWidget(self.bnTest, 1, 5)
+        self.layout.addWidget(self.cbAutoLog, 1, 3)
+        self.layout.addWidget(self.bnLoadGenome, 1, 4)
+        self.layout.addWidget(self.bnSaveGenome, 1, 5)
+        self.layout.addWidget(self.bnTest, 1, 6)
 
         #plot and gradient
-        self.layout.addWidget(self.plotWidget,0,0,1,6)
-        self.layout.addWidget(self.gradientWidget, 0, 6, 2, 1)
+        self.layout.addWidget(self.plotWidget,0,0,1,7)
+        self.layout.addWidget(self.gradientWidget, 0, 7, 2, 1)
 
         #add layout
         self.setLayout(self.layout)
@@ -164,11 +177,20 @@ class MainAssemblerWindow(QWidget):
 
     def generate_data_fromHiCPro(self):
         self.settings["doNorm"] = self.cbNormToSize.checkState()
+        print ("Loading Matrix")
         self.data = np.loadtxt(self.settings["MatrixFile"])
+        print("Loading BED file")
         bed = np.genfromtxt(self.settings["BedFile"],
                             dtype=np.dtype([("f0","|U50"),("f1",np.int64),("f2",np.int64)]),
                             #dtype=None,
                             usecols=(0,1,2))
+        with open(self.settings["mainLogFile"],"a") as fout:
+            fout.write(str(datetime.datetime.now())+"Loading Hi-C Pro data:\n")
+            fout.write(self.settings["MatrixFile"]+"\t")
+            fout.write(self.settings["BedFile"]+"\n")
+
+
+        print ("Data loaded, reordering matrix")
         self.scaffolds = []
         self.scaffoldNames = []
         count = 0
@@ -314,7 +336,6 @@ class MainAssemblerWindow(QWidget):
         def do_reindex(d_from,d_to,maxLen,move_type="exchange"):
             reindex = list(range(0,min(d_from[0],d_to[0])))
             if move_type=="exchange":
-                #self.actions.append("e\t" + self.scaffoldNames[scaffold_from] + "\t" + self.scaffoldNames[scaffold_to])
                 if d_from[0]<d_to[0]:
                     reindex += list(range(d_to[0],d_to[1]))
                     reindex += list(range(d_from[1],d_to[0]))
@@ -325,7 +346,6 @@ class MainAssemblerWindow(QWidget):
                     reindex += list(range(d_to[0], d_to[1]))
                 reindex += list(range(max(d_from[1],d_to[1]),maxLen))
             elif move_type=="upper":
-                #self.actions.append("m\t" + self.scaffoldNames[scaffold_from] + "\t" + self.scaffoldNames[scaffold_to])
                 if d_from[0] < d_to[0]:
                     reindex += list(range(d_from[1], d_to[0]))
                     reindex += list(range(d_from[0], d_from[1]))
@@ -355,6 +375,10 @@ class MainAssemblerWindow(QWidget):
         scaffold_to = self.get_scaffolds_in_diapason(d_to)
         assert scaffold_to[1] - scaffold_to[0] == 1
         scaffoldsReindex = do_reindex(scaffold_from,scaffold_to,len(self.scaffolds), move_type=move_type)
+        self.actions.append(move_type + "\t" +
+                            "+".join([self.scaffoldNames[i] for i in range(scaffold_from[0],scaffold_from[1])]) + \
+                            "\t" + \
+                            "+".join([self.scaffoldNames[i] for i in range(scaffold_to[0],scaffold_to[1])]))
         assert len(scaffoldsReindex)==len(self.scaffolds)
         self.scaffolds = [self.scaffolds[i] for i in scaffoldsReindex]
         self.scaffoldNames = [self.scaffoldNames[i] for i in scaffoldsReindex]
@@ -389,9 +413,10 @@ class MainAssemblerWindow(QWidget):
 
     def save_actions(self):
         print ("Saving actions...")
-        with open(self.settings["filename"],"w") as out:
-            out.write("\n".join(self.actions))
-        self.save_genome()
+        fname = self.settings["actionsfile"]
+        with open(fname,"w") as out:
+            out.write("\n".join(self.actions)+"\n")
+        self.save_genome("genome_log.txt")
 
     def save_genome(self,fname="genome.txt"):
         def orientation_to_str(i):
@@ -402,6 +427,12 @@ class MainAssemblerWindow(QWidget):
             else:
                 raise
         print ("Saving genome...")
+
+        if self.cbAutoLog.isChecked():
+            fname = os.path.join(
+                os.path.dirname(fname),
+                self.getCuttTimePrefix() + "_" + os.path.basename(fname))
+
         with open(fname,"w") as out:
             for ind,val in enumerate(self.scaffoldNames):
                 out.write(val+"\t"+orientation_to_str(self.scaffoldOrientations[ind])+"\n")
@@ -461,6 +492,9 @@ class MainAssemblerWindow(QWidget):
         self.scaffoldNames = [self.scaffoldNames[i] for i in scaffolds_reindex]
         self.scaffoldOrientations = new_orientations
         self.update_borders()
+
+        with open(self.settings["mainLogFile"],"a") as fout:
+            fout.write("Loaded assembly "+fname)
 
     def onClick(self,event):
         print("--------")
