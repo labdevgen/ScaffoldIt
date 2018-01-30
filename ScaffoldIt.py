@@ -146,8 +146,8 @@ class MainAssemblerWindow(QWidget):
         fname = QFileDialog.getOpenFileName(caption="Load genome",directory=self.baseDir)
         if fname:
             fname = fname[0]
-            self.update_ini(fname)
             self.load_genome(fname)
+            self.update_ini(fname)
 
     def generate_test_data(self,data=None,scaffolds=None,scaffoldOrientations=None,scaffoldNames=None):
         if data == None or scaffolds == None:
@@ -438,6 +438,16 @@ class MainAssemblerWindow(QWidget):
                 out.write(val+"\t"+orientation_to_str(self.scaffoldOrientations[ind])+"\n")
         print ("Data saved")
 
+    def showErrorMessage(self,msgtext="Unknown Error",msgInfoText="Unknown Error Occur",winTitle="Error"):
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Information)
+        msg.setText(msgtext)
+        msg.setInformativeText(msgInfoText)
+        msg.setWindowTitle(winTitle)
+        msg.setStandardButtons(QMessageBox.Cancel)
+        return msg.exec_()
+
+
     def load_genome(self,fname):
         def orientation_to_int(o):
             assert o in ["+","-","1","0"]
@@ -448,38 +458,45 @@ class MainAssemblerWindow(QWidget):
             else:
                 return int(o)
 
-        new_genome = np.genfromtxt(fname,dtype=np.dtype([("f0","|U50"),("f1","|U50")]))
-        assert len(new_genome) == len(self.scaffolds)
-        assert sum(self.scaffolds) == len(self.data)
-        assert len(np.unique(new_genome["f0"]))==len(new_genome["f0"])
-        scaffolds_reindex = []
-        new_orientations = []
-        reindex = []
-        for ind,val in enumerate(new_genome["f0"]):
-            if not (val in self.scaffoldNames):
-                print ("Scaffold ",val," not in")
-                print (self.scaffoldNames)
-                raise
-            old_id = self.scaffoldNames.index(val)
-            scaffolds_reindex.append(old_id)
+        try:
+            errMsg = "Error loading assembly"
+            new_genome = np.genfromtxt(fname, dtype=np.dtype([("f0", "|U50"), ("f1", "|U50")]))
+            assert len(new_genome) == len(self.scaffolds)
+            assert sum(self.scaffolds) == len(self.data)
+            assert len(np.unique(new_genome["f0"]))==len(new_genome["f0"])
 
-            if old_id == 0:
-                scaffold_begin = 0
-            else:
-                scaffold_begin = self.borders[old_id-1]
-            scaffold_end = self.borders[old_id]
+            scaffolds_reindex = []
+            new_orientations = []
+            reindex = []
+            for ind,val in enumerate(new_genome["f0"]):
+                if not (val in self.scaffoldNames):
+                    errMsg = "Scaffold "+str(val)+" not in scaffolds"
+                    raise Exception("GenomeLoadException")
+                old_id = self.scaffoldNames.index(val)
+                scaffolds_reindex.append(old_id)
 
-            new_orientations.append(orientation_to_int(new_genome["f1"][ind]))
+                if old_id == 0:
+                    scaffold_begin = 0
+                else:
+                    scaffold_begin = self.borders[old_id-1]
+                scaffold_end = self.borders[old_id]
 
-            if new_orientations[-1] != self.scaffoldOrientations[ind]:
-                reindex += list(range(scaffold_end-1,scaffold_begin-1,-1))
-            elif new_orientations[-1] == 1 or new_orientations[-1] == 0:
-                reindex += list(range(scaffold_begin,scaffold_end,1))
-            else:
-                print (new_orientations[-1],self.scaffoldOrientations[ind])
-                raise
+                new_orientations.append(orientation_to_int(new_genome["f1"][ind]))
 
-        assert len(reindex) == len(self.data)
+                if new_orientations[-1] != self.scaffoldOrientations[ind]:
+                    reindex += list(range(scaffold_end-1,scaffold_begin-1,-1))
+                elif new_orientations[-1] == 1 or new_orientations[-1] == 0:
+                    reindex += list(range(scaffold_begin,scaffold_end,1))
+                else:
+                    print (new_orientations[-1],self.scaffoldOrientations[ind])
+                    errMsg = "Unknown orientation for scaffold"+str(val)
+                    raise Exception("GenomeLoadException")
+            errMsg = "Wrong number/lengths of scaffolds"
+            assert len(reindex) == len(self.data)
+        except:
+            self.showErrorMessage(msgtext="Error loading genome",msgInfoText=errMsg)
+            return 0
+
 
         temp = np.zeros_like(self.data)
         for i in range(len(self.data)):
