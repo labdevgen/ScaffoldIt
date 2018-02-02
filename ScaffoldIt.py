@@ -582,7 +582,7 @@ class MainAssemblerWindow(QWidget):
         assert old_scaffolds_N == len(new_scaffold_names) - 1 == len(new_scaffold_orient) - 1
 
         with open(self.settings["BedFile"]) as fin,\
-            open(self.settings["BedFile"]+".split"+new_scaffold_names[scaffold_id]+".dense","w") as fout:
+            open(self.settings["BedFile"]+".split"+new_scaffold_names[scaffold_id]+".bed","w") as fout:
             curr_ind = 0
             for line in fin:
                 if line.startswith("#"):
@@ -605,7 +605,7 @@ class MainAssemblerWindow(QWidget):
         self.scaffoldNames = new_scaffold_names
         genomefile = self.save_genome(fname=self.settings["BedFile"]+"split"+new_scaffold_names[scaffold_id]+".genome")
 
-        self.settings["BedFile"] = self.settings["BedFile"]+".split"+new_scaffold_names[scaffold_id]+".dense"
+        self.settings["BedFile"] = self.settings["BedFile"]+".split"+new_scaffold_names[scaffold_id]+".bed"
         self.generate_data_fromHiCPro()
         self.plotWidget.clear()
         self.init_plot(connect=False)
