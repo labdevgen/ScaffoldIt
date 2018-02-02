@@ -55,10 +55,16 @@ class MainAssemblerWindow(QWidget):
 
         self.cbNormToSize = QCheckBox("Normalize to bin size")
         self.cbAutoLog = QCheckBox("AutoLog")
-        self.cbAutoLog.setChecked(True)
+        self.cbAutoLog.setChecked(False)
 
         self.bnLoadTest =  QPushButton("Load Test data")
         self.bnLoadTest.clicked.connect(self.loadTest)
+
+        self.cbSplitMode = QCheckBox("SplitMode")
+        self.cbSplitMode.hide()
+
+        self.cbCross = QCheckBox("Add Cross")
+        self.cbCross.setChecked(True)
 
         self.bnLoadGenome = QPushButton("Load Assmebly")
         self.bnLoadGenome.clicked.connect(self.bnLoadGenomeClick)
@@ -87,12 +93,13 @@ class MainAssemblerWindow(QWidget):
         self.layout.addWidget(self.cbAutoLog, 1, 3)
         self.layout.addWidget(self.bnLoadGenome, 1, 4)
         self.layout.addWidget(self.bnSaveGenome, 1, 5)
-        self.layout.addWidget(self.bnTest, 1, 6)
+        self.layout.addWidget(self.cbSplitMode, 1, 6)
+        self.layout.addWidget(self.cbCross, 1, 7)
+        self.layout.addWidget(self.bnTest, 1, 8)
 
         #plot and gradient
-        self.layout.addWidget(self.plotWidget,0,0,1,7)
-        self.layout.addWidget(self.gradientWidget, 0, 7, 2, 1)
-
+        self.layout.addWidget(self.plotWidget,0,0,1,9)
+        self.layout.addWidget(self.gradientWidget, 0, 9, 2, 1)
         #add layout
         self.setLayout(self.layout)
         #do some tuning =)
@@ -148,6 +155,10 @@ class MainAssemblerWindow(QWidget):
             fname = fname[0]
             self.load_genome(fname)
             self.update_ini(fname)
+
+    def cbSplitModeClick(self):
+        self.diapason = None
+        self.deselect_data()
 
     def generate_test_data(self,data=None,scaffolds=None,scaffoldOrientations=None,scaffoldNames=None):
         if data == None or scaffolds == None:
@@ -220,15 +231,20 @@ class MainAssemblerWindow(QWidget):
         self.data = np.log2(self.data+toadd)
         print("Done!")
 
-    def init_plot(self):
+    def init_plot(self,connect = True):
+        #connect - connect plot to click function? - True or Flase
+        #if you connect multiple times, function will be executed multiple times
         self.imageItem = pg.ImageItem(self.data)
         self.imageItem.setLookupTable(self.gradientWidget.getLookupTable(254))
-        #self.imageItem .setLookupTable(getLutfromCmap("autumn"))
+        #self.imageItem.setLookupTable(getLutfromCmap("autumn"))
         self.plotWidget.addItem(self.imageItem)
         self.plotWidget.getViewBox().invertY(True)
         self.lines = []
         self.update_borders()
-        self.plotWidget.sceneObj.sigMouseClicked.connect(self.onClick)
+        if connect:
+            self.plotWidget.sceneObj.sigMouseClicked.connect(self.onClick)
+            self.plotWidget.sceneObj.sigMouseMoved.connect(self.onMove)
+            #self.plotWidget.sceneObj.keyPressEvent.connect(self.onKeyPress)
 
         #now hide "load" buttons
         self.bnLoadTest.setDisabled(True)
@@ -236,6 +252,7 @@ class MainAssemblerWindow(QWidget):
         self.cbNormToSize.setDisabled(True)
         self.bnLoadGenome.show()
         self.bnSaveGenome.show()
+        self.cbSplitMode.show()
 
     def changeGradient(self):
         try:
@@ -274,6 +291,16 @@ class MainAssemblerWindow(QWidget):
 
         self.plotWidget.getPlotItem().getAxis("bottom").setZValue(1)
         print("Done")
+
+    def plot_cross_line(self,x,y):
+        try:
+            self.plotWidget.removeItem(self.line_x)
+            self.plotWidget.removeItem(self.line_y)
+        except:
+            pass
+        if self.cbCross.isChecked():
+            self.line_x = self.plotWidget.addLine(x=x,z=10)
+            self.line_y = self.plotWidget.addLine(y=y,z=10)
 
     def get_selected_scaffold_diapason(self,x):
         t = np.searchsorted(self.borders,x,side="right")
@@ -319,6 +346,7 @@ class MainAssemblerWindow(QWidget):
 
     def get_scaffolds_in_diapason(self,diapason):
         if diapason == None or len(diapason)==0:
+            print (diapason)
             return -1,-1
         left_boundary = diapason[0]
         if left_boundary == 0:
@@ -436,7 +464,8 @@ class MainAssemblerWindow(QWidget):
         with open(fname,"w") as out:
             for ind,val in enumerate(self.scaffoldNames):
                 out.write(val+"\t"+orientation_to_str(self.scaffoldOrientations[ind])+"\n")
-        print ("Data saved")
+        print ("Data saved to "+fname)
+        return fname
 
     def showErrorMessage(self,msgtext="Unknown Error",msgInfoText="Unknown Error Occur",winTitle="Error"):
         msg = QMessageBox()
@@ -446,7 +475,6 @@ class MainAssemblerWindow(QWidget):
         msg.setWindowTitle(winTitle)
         msg.setStandardButtons(QMessageBox.Cancel)
         return msg.exec_()
-
 
     def load_genome(self,fname):
         def orientation_to_int(o):
@@ -459,10 +487,14 @@ class MainAssemblerWindow(QWidget):
                 return int(o)
 
         try:
-            errMsg = "Error loading assembly"
+            errMsg = "Cannot read assmebly file"
+            print (fname)
             new_genome = np.genfromtxt(fname, dtype=np.dtype([("f0", "|U50"), ("f1", "|U50")]))
+            errMsg = "Number of scaffold does not match between genomes"
             assert len(new_genome) == len(self.scaffolds)
+            errMsg = "Total length of scaffolds does not match matrix"
             assert sum(self.scaffolds) == len(self.data)
+            errMsg = "Duplicates found in genome file"
             assert len(np.unique(new_genome["f0"]))==len(new_genome["f0"])
 
             scaffolds_reindex = []
@@ -513,12 +545,106 @@ class MainAssemblerWindow(QWidget):
         with open(self.settings["mainLogFile"],"a") as fout:
             fout.write("Loaded assembly "+fname)
 
+    def split_scaffold(self,scaffold_id,bin):
+        try:
+            self.settings["BedFile"]
+            open(self.settings["BedFile"])
+        except:
+            self.showErrorMessage("Splitting error","Hi-CPro Bed file not found","Error")
+            return
+
+        scaffold_length = self.scaffolds[scaffold_id]
+        print ("Scaffold length = ",scaffold_length," bin = ",bin)
+
+        if bin == scaffold_length:
+            self.showErrorMessage("Splitting error","Cannot split after last bin","Error")
+            return
+
+        if self.scaffoldOrientations[scaffold_id] == 0:
+            bin = scaffold_length - bin - 2
+
+
+        old_scaffolds_N = len(self.scaffoldNames)
+        new_scaffold_names = []
+        new_scaffold_orient = []
+        for ind,(name,orientation) in enumerate(zip(self.scaffoldNames,self.scaffoldOrientations)):
+            if ind == scaffold_id:
+                if self.scaffoldOrientations[scaffold_id] == 0:
+                    new_scaffold_names.append(name + ".2")
+                    new_scaffold_names.append(name + ".1")
+                else:
+                    new_scaffold_names.append(name + ".1")
+                    new_scaffold_names.append(name + ".2")
+                new_scaffold_orient += [orientation,orientation]
+            else:
+                new_scaffold_names.append(name)
+                new_scaffold_orient.append(orientation)
+        assert old_scaffolds_N == len(new_scaffold_names) - 1 == len(new_scaffold_orient) - 1
+
+        with open(self.settings["BedFile"]) as fin,\
+            open(self.settings["BedFile"]+".split"+new_scaffold_names[scaffold_id]+".dense","w") as fout:
+            curr_ind = 0
+            for line in fin:
+                if line.startswith("#"):
+                    fout.write(line)
+                else:
+                    data = line.strip().split()
+                    if data[0] == self.scaffoldNames[scaffold_id]:
+                        if curr_ind <= bin:
+                            fout.write(data[0]+".1"+"\t")
+                            fout.write("\t".join(data[1:])+"\n")
+                        else:
+                            fout.write(data[0]+".2"+"\t")
+                            fout.write("\t".join(data[1:])+"\n")
+                        curr_ind += 1
+                    else:
+                        fout.write(line)
+            assert curr_ind == self.scaffolds[scaffold_id]
+
+        self.scaffoldOrientations = new_scaffold_orient
+        self.scaffoldNames = new_scaffold_names
+        genomefile = self.save_genome(fname=self.settings["BedFile"]+"split"+new_scaffold_names[scaffold_id]+".genome")
+
+        self.settings["BedFile"] = self.settings["BedFile"]+".split"+new_scaffold_names[scaffold_id]+".dense"
+        self.generate_data_fromHiCPro()
+        self.plotWidget.clear()
+        self.init_plot(connect=False)
+        self.load_genome(genomefile)
+
+    def onMove(self,point):
+        #posInView = self.plotWidget.getViewBox().mapSceneToView(event.scenePos())
+        print (point.x(),point.y())
+        posInView = self.plotWidget.getViewBox().mapSceneToView(point)
+        print (posInView.x(),posInView.y())
+        self.Pos = posInView
+        self.plot_cross_line(posInView.x(),posInView.y())
+
     def onClick(self,event):
         print("--------")
         modifiers = QtGui.QApplication.keyboardModifiers()
         #print (event.button())
         posInView = self.plotWidget.getViewBox().mapSceneToView(event.scenePos())
         newdiapason = self.get_selected_scaffold_diapason(int(posInView.y()))
+
+        if self.cbSplitMode.isChecked(): #click done in splitMode
+            sel_scaffolds = self.get_scaffolds_in_diapason(newdiapason)
+            if sel_scaffolds[1] - sel_scaffolds[0] != 1:
+                self.showErrorMessage("Splitting error","Wrong selection","Splitting error")
+                return
+            print ("ScaffNames=",self.scaffoldNames)
+            print (sel_scaffolds)
+            sel_scaffold_id =  sel_scaffolds[0]
+            print (sel_scaffold_id)
+            #DEBUG
+            print ("Selecting scaffold ",self.scaffoldNames[sel_scaffold_id])
+            sel_bin = int(posInView.y())-newdiapason[0]
+            if sel_bin >= self.scaffolds[sel_scaffold_id]-1:
+                self.showErrorMessage("Splitting selection error","Cannot select last bin in scaffold","Splitting Error")
+                return
+            print ("Selecting bin",sel_bin)
+            self.split_scaffold(sel_scaffold_id,sel_bin)
+            return
+
         if event.button() == 2:  # right click for inversion
             d = self.get_scaffolds_in_diapason(self.diapason)
             if d[1]-d[0] != 1:
@@ -559,6 +685,21 @@ class MainAssemblerWindow(QWidget):
                 self.deselect_data()
                 self.diapason = None
         print ("Scaffolds in diapason:",self.get_scaffolds_in_diapason(self.diapason))
+
+    def keyPressEvent(self, e):
+        if e.key() == QtCore.Qt.Key_Left or e.key() == QtCore.Qt.Key_Right:
+            print("Left/Right")
+            cursor = self.cursor()
+            print(self.Pos.x(), self.Pos.y())
+            newPos = self.plotWidget.getViewBox().mapViewToScene(self.Pos)
+            print (newPos.x(),newPos.y())
+            point  = QtCore.QPoint(newPos.x(),newPos.y())
+            print (point)
+            print (self.plotWidget.mapToGlobal(point))
+            #newPos = self.mapFrom(self.plotWidget,point)
+            #print (newPos)
+            cursor.setPos(point)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
