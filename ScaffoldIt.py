@@ -25,7 +25,7 @@ class MainAssemblerWindow(QWidget):
     def getCuttTimePrefix(self):
         now = datetime.datetime.now()
         return "_".join(map(str, [now.year, now.month, now.day,
-                                      now.hour, now.second]))
+                                      now.hour,now.minute, now.second]))
 
     def __init__(self,parent=None):
         super().__init__(parent)
@@ -581,8 +581,12 @@ class MainAssemblerWindow(QWidget):
                 new_scaffold_orient.append(orientation)
         assert old_scaffolds_N == len(new_scaffold_names) - 1 == len(new_scaffold_orient) - 1
 
+        out_file_prefix =  os.path.join(os.path.dirname(self.settings["BedFile"]),
+                                        "split."+self.getCuttTimePrefix()
+                                        )
+
         with open(self.settings["BedFile"]) as fin,\
-            open(self.settings["BedFile"]+".split"+new_scaffold_names[scaffold_id]+".bed","w") as fout:
+            open(out_file_prefix+".bed","w") as fout:
             curr_ind = 0
             for line in fin:
                 if line.startswith("#"):
@@ -601,11 +605,16 @@ class MainAssemblerWindow(QWidget):
                         fout.write(line)
             assert curr_ind == self.scaffolds[scaffold_id]
 
+        self.actions.append("S\t"+self.scaffoldNames[scaffold_id]+"\t"+str(bin))
+        self.save_actions()
+        with open(self.settings["mainLogFile"],"a") as fout:
+            fout.write(str(datetime.datetime.now())+" Scaffold "+self.scaffoldNames[scaffold_id]+" splitted\n")
+
         self.scaffoldOrientations = new_scaffold_orient
         self.scaffoldNames = new_scaffold_names
-        genomefile = self.save_genome(fname=self.settings["BedFile"]+"split"+new_scaffold_names[scaffold_id]+".genome")
 
-        self.settings["BedFile"] = self.settings["BedFile"]+".split"+new_scaffold_names[scaffold_id]+".bed"
+        genomefile = self.save_genome(fname=out_file_prefix+".genome")
+        self.settings["BedFile"] = out_file_prefix+".bed"
         self.generate_data_fromHiCPro()
         self.plotWidget.clear()
         self.init_plot(connect=False)
@@ -613,9 +622,9 @@ class MainAssemblerWindow(QWidget):
 
     def onMove(self,point):
         #posInView = self.plotWidget.getViewBox().mapSceneToView(event.scenePos())
-        print (point.x(),point.y())
+        #print (point.x(),point.y())
         posInView = self.plotWidget.getViewBox().mapSceneToView(point)
-        print (posInView.x(),posInView.y())
+        #print (posInView.x(),posInView.y())
         self.Pos = posInView
         self.plot_cross_line(posInView.x(),posInView.y())
 
@@ -688,14 +697,14 @@ class MainAssemblerWindow(QWidget):
 
     def keyPressEvent(self, e):
         if e.key() == QtCore.Qt.Key_Left or e.key() == QtCore.Qt.Key_Right:
-            print("Left/Right")
+            #print("Left/Right")
             cursor = self.cursor()
-            print(self.Pos.x(), self.Pos.y())
+            #print(self.Pos.x(), self.Pos.y())
             newPos = self.plotWidget.getViewBox().mapViewToScene(self.Pos)
-            print (newPos.x(),newPos.y())
+            #print (newPos.x(),newPos.y())
             point  = QtCore.QPoint(newPos.x(),newPos.y())
-            print (point)
-            print (self.plotWidget.mapToGlobal(point))
+            #print (point)
+            #print (self.plotWidget.mapToGlobal(point))
             #newPos = self.mapFrom(self.plotWidget,point)
             #print (newPos)
             cursor.setPos(point)
